@@ -1,0 +1,19 @@
+﻿# Environment variables and API keys
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Node and frontend build files
+node_modules/
+dist/
+build/
+
+# Other
+.DS_Store
