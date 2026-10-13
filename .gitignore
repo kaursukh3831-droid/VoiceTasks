@@ -17,3 +17,12 @@ build/
 
 # Other
 .DS_Store
+
+# Local SSL certificates and private keys
+*.pem
+*.key
+
+# AWS Lambda deployment artifacts
+lambda-deployment.zip
+voicetasks-lambda.zip
+lambda-package/

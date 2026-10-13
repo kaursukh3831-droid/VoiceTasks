@@ -3,45 +3,89 @@ import re
 from datetime import date, timedelta
 
 
+# Convert a voice transcript into structured task details.
 def parse_task(transcript: str) -> dict:
+
+    # Clean extra spaces from the transcript.
     text = " ".join((transcript or "").strip().split())
     lower = text.lower()
 
-    # Priority
+    today = date.today()
+
+    # -----------------------------------------------
+    # 1. Detect task priority
+    # -----------------------------------------------
     priority = "Medium"
 
-    if any(w in lower for w in [
-        "urgent", "high priority", "higher priority",
-        "high-priority", "higher-priority",
-        "important", "very important", "zaroori",
-        "जरूरी", "ज़रूरी", "ज्यादा जरूरी",
-        "ਜਰੂਰੀ", "ਜ਼ਰੂਰੀ", "ਜ਼ਿਆਦਾ ਜ਼ਰੂਰੀ"
-    ]):
+    high_priority_words = [
+        "urgent",
+        "high priority",
+        "important",
+        "zaroori",
+        "जरूरी",
+        "ज़रूरी",
+        "ਜਰੂਰੀ",
+        "ਜ਼ਰੂਰੀ",
+    ]
+
+    low_priority_words = [
+        "low priority",
+        "not urgent",
+        "कम जरूरी",
+        "ਘੱਟ ਜ਼ਰੂਰੀ",
+    ]
+
+    if any(word in lower for word in high_priority_words):
         priority = "High"
 
-    elif any(w in lower for w in [
-        "low priority", "low-priority", "not urgent",
-        "कम priority", "कम जरूरी", "ਘੱਟ ਜ਼ਰੂਰੀ"
-    ]):
+    elif any(word in lower for word in low_priority_words):
         priority = "Low"
 
-    # Category
+    # -----------------------------------------------
+    # 2. Detect task category
+    # -----------------------------------------------
     category = "General"
+
     category_words = {
         "Study": [
-            "assignment", "exam", "study", "homework",
-            "class", "college", "dbms", "python",
-            "पढ़", "ਪੜ੍ਹ"
+            "assignment",
+            "exam",
+            "study",
+            "homework",
+            "class",
+            "college",
+            "dbms",
+            "python",
+            "पढ़",
+            "ਪੜ੍ਹ",
+            "असाइनमेंट",
+            "ਇਮਤਿਹਾਨ",
         ],
-        "Work": ["meeting", "office", "work", "client", "project"],
+        "Work": [
+            "meeting",
+            "office",
+            "work",
+            "client",
+            "project",
+        ],
         "Health": [
-            "doctor", "medicine", "workout", "exercise",
-            "health", "appointment"
+            "doctor",
+            "medicine",
+            "workout",
+            "exercise",
         ],
-        "Finance": ["bill", "payment", "bank", "budget", "fee", "fees"],
+        "Finance": [
+            "bill",
+            "payment",
+            "bank",
+            "budget",
+            "fee",
+        ],
         "Personal": [
-            "buy", "shopping", "family", "birthday",
-            "call mom", "personal"
+            "shopping",
+            "family",
+            "birthday",
+            "personal",
         ],
     }
 
@@ -50,26 +94,75 @@ def parse_task(transcript: str) -> dict:
             category = label
             break
 
-    # Date
-    task_date = None
-    today = date.today()
+    # -----------------------------------------------
+    # 3. Detect task type
+    # -----------------------------------------------
+    task_type = "Task"
 
-    if re.search(r"\btomorrow\b|\bkal\b|कल|ਕੱਲ੍ਹ", lower):
-        task_date = (today + timedelta(days=1)).isoformat()
-    elif re.search(r"\btoday\b|आज|ਅੱਜ", lower):
+    assignment_words = [
+        "assignment",
+        "homework",
+        "असाइनमेंट",
+        "ਹੋਮਵਰਕ",
+    ]
+
+    exam_words = [
+        "exam",
+        "test",
+        "इम्तिहान",
+        "परीक्षा",
+        "ਇਮਤਿਹਾਨ",
+    ]
+
+    if any(word in lower for word in assignment_words):
+        task_type = "Assignment"
+
+    elif any(word in lower for word in exam_words):
+        task_type = "Exam"
+
+    elif "meeting" in lower:
+        task_type = "Meeting"
+
+    elif "reminder" in lower or "remind me" in lower:
+        task_type = "Reminder"
+
+    elif any(word in lower for word in ["personal", "shopping"]):
+        task_type = "Personal"
+
+    # -----------------------------------------------
+    # 4. Detect the task date
+    # -----------------------------------------------
+    task_date = None
+
+    tomorrow_pattern = r"\btomorrow\b|\bkal\b|कल|ਕੱਲ੍ਹ"
+    today_pattern = r"\btoday\b|आज|ਅੱਜ"
+
+    if re.search(tomorrow_pattern, lower):
+        task_date = (
+            today + timedelta(days=1)
+        ).isoformat()
+
+    elif re.search(today_pattern, lower):
         task_date = today.isoformat()
 
-    # Time
+    # -----------------------------------------------
+    # 5. Detect the task time
+    # -----------------------------------------------
     task_time = None
+
+    # Match expressions such as:
+    # "at 6 pm", "by 6:30 pm", or "around 10".
     match = re.search(
-        r"\b(?:at|by|around)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b",
-        lower
+        r"\b(?:at|by|around)\s*"
+        r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b",
+        lower,
     )
 
+    # If necessary, try a time written as "18:00".
     if not match:
         match = re.search(
             r"\b(\d{1,2}):(\d{2})\s*(am|pm)?\b",
-            lower
+            lower,
         )
 
     if match:
@@ -77,44 +170,67 @@ def parse_task(transcript: str) -> dict:
         minute = int(match.group(2) or "0")
         meridiem = match.group(3)
 
+        # Convert 12-hour time into 24-hour time.
         if meridiem == "pm" and hour < 12:
             hour += 12
+
         elif meridiem == "am" and hour == 12:
             hour = 0
 
+        # Accept only valid hours and minutes.
         if 0 <= hour <= 23 and 0 <= minute <= 59:
             task_time = f"{hour:02d}:{minute:02d}"
 
-    # Clean the title
+    # -----------------------------------------------
+    # 6. Clean the task title
+    # -----------------------------------------------
     title = text
 
-    patterns = [
+    title_patterns = [
         r"\b(?:tomorrow|today|kal)\b.*$",
-        r"\b(?:at|by|around)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b.*$",
+        r"\b(?:at|by|around)\s+"
+        r"\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b.*$",
         r"\b(?:high|higher|medium|low)\s+priority\b",
         r"\b(?:urgent|important|very important)\b",
-        r"कल.*$", r"आज.*$", r"ਕੱਲ੍ਹ.*$", r"ਅੱਜ.*$",
+        r"कल.*$",
+        r"आज.*$",
+        r"ਕੱਲ੍ਹ.*$",
+        r"ਅੱਜ.*$",
     ]
 
-    for pattern in patterns:
-        title = re.sub(pattern, "", title, flags=re.IGNORECASE).strip(" ,.-")
+    for pattern in title_patterns:
+        title = re.sub(
+            pattern,
+            "",
+            title,
+            flags=re.IGNORECASE,
+        ).strip(" ,.-")
 
+    # Remove common task-creation phrases.
     title = re.sub(
-        r"^(please\s+)?(remind me to|remind me|add a task to|"
-        r"add task|create a task to|create task|i need to|"
-        r"मुझे|मुझे करना है|ਮੈਨੂੰ)\s*",
+        r"^(please\s+)?"
+        r"(remind me to|remind me|add a task to|"
+        r"add task|create a task to|create task|"
+        r"i need to|मुझे|मੈਨੂੰ)\s*",
         "",
         title,
-        flags=re.IGNORECASE
+        flags=re.IGNORECASE,
     )
 
-    title = title.strip(" ,.-") or text[:180] or "New task"
+    title = title.strip(" ,.-")
 
+    if not title:
+        title = text[:180] or "New task"
+
+    # -----------------------------------------------
+    # 7. Return all extracted task details
+    # -----------------------------------------------
     return {
         "title": title[:180],
         "date": task_date,
         "time": task_time,
         "priority": priority,
         "category": category,
+        "type": task_type,
         "transcript": text,
     }

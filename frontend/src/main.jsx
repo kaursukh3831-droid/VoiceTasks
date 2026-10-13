@@ -1,9 +1,13 @@
-
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createRoot } from "react-dom/client";
 import {
   AudioLines,
-  Bell,
   CalendarDays,
   Check,
   CheckCheck,
@@ -19,14 +23,15 @@ import {
   Sparkles,
   Trash2,
   X,
-  Zap,
 } from "lucide-react";
+
 import "./styles.css";
 
-const API = (
-  import.meta.env.VITE_API_URL || "http://127.0.0.1:8000"
-).replace(/\/$/, "");
+// Use the deployed API URL from .env.local, or the local backend by default.
+const API_URL =
+  import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
+// Default values used when creating or resetting a task form.
 const emptyTask = {
   title: "",
   description: "",
@@ -38,29 +43,37 @@ const emptyTask = {
   status: "Pending",
 };
 
+// Send a request to the backend and return its response.
 async function api(path, options = {}) {
-  const response = await fetch(`${API}${path}`, options);
+  const response = await fetch(`${API_URL}${path}`, options);
   const contentType = response.headers.get("content-type") || "";
+
   const data = contentType.includes("application/json")
     ? await response.json()
     : await response.text();
 
-if (!response.ok) {
-  const details =
-    typeof data === "string"
-      ? data
-      : typeof data?.detail === "string"
-        ? data.detail
-        : JSON.stringify(data?.detail ?? data);
+  if (!response.ok) {
+    const details =
+      typeof data === "string"
+        ? data
+        : typeof data?.detail === "string"
+          ? data.detail
+          : JSON.stringify(data?.detail ?? data);
 
-  throw new Error(
-    `HTTP ${response.status}: ${details || "Request failed"}`
-  );
-}
+    throw new Error(
+      `HTTP ${response.status}: ${details || "Request failed"}`,
+    );
+  }
+
   return data;
 }
 
+// Standardize task fields returned by the API.
 function normalizeTask(task = {}) {
+  const status =
+    task.status ||
+    (task.completed === true ? "Completed" : "Pending");
+
   return {
     id: task.id ?? task.task_id ?? task._id,
     title: task.title ?? task.task_title ?? "",
@@ -70,7 +83,7 @@ function normalizeTask(task = {}) {
     priority: capitalize(task.priority || "Medium"),
     category: task.category || "Personal",
     type: task.type || task.task_type || "Task",
-    status: capitalize(task.status || "Pending"),
+    status: capitalize(status),
   };
 }
 
@@ -79,7 +92,7 @@ function capitalize(value) {
   return text.charAt(0).toUpperCase() + text.slice(1).toLowerCase();
 }
 
-
+// Convert different error shapes into a readable message.
 function getErrorMessage(error) {
   if (error instanceof Error) {
     return error.message;
@@ -101,27 +114,35 @@ function getErrorMessage(error) {
   return "Something went wrong.";
 }
 
-function formatDate(date) {
-  if (!date) return "No due date";
+function formatDate(dateValue) {
+  if (!dateValue) return "No due date";
 
-  const parsed = new Date(`${date}T00:00:00`);
-  if (Number.isNaN(parsed.getTime())) return date;
+  const parsedDate = new Date(`${dateValue}T00:00:00`);
 
-  return parsed.toLocaleDateString("en-IN", {
+  if (Number.isNaN(parsedDate.getTime())) {
+    return dateValue;
+  }
+
+  return parsedDate.toLocaleDateString("en-IN", {
     day: "numeric",
     month: "short",
     year: "numeric",
   });
 }
 
-function formatTime(time) {
-  if (!time) return "";
-  const [hour, minute] = String(time).split(":").map(Number);
-  if (Number.isNaN(hour) || Number.isNaN(minute)) return time;
+function formatTime(timeValue) {
+  if (!timeValue) return "";
 
-  const date = new Date();
-  date.setHours(hour, minute, 0, 0);
-  return date.toLocaleTimeString("en-IN", {
+  const [hour, minute] = String(timeValue).split(":").map(Number);
+
+  if (Number.isNaN(hour) || Number.isNaN(minute)) {
+    return timeValue;
+  }
+
+  const parsedTime = new Date();
+  parsedTime.setHours(hour, minute, 0, 0);
+
+  return parsedTime.toLocaleTimeString("en-IN", {
     hour: "numeric",
     minute: "2-digit",
   });
@@ -142,6 +163,7 @@ function IconButton({ label, onClick, children, className = "" }) {
 }
 
 function App() {
+  // Dashboard data and feedback.
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -149,19 +171,22 @@ function App() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All Tasks");
 
+  // Add/edit task form.
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
   const [form, setForm] = useState(emptyTask);
   const [saving, setSaving] = useState(false);
 
+  // Voice assistant state.
   const [voiceModalOpen, setVoiceModalOpen] = useState(false);
   const [recording, setRecording] = useState(false);
   const [voiceBusy, setVoiceBusy] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [voiceStatus, setVoiceStatus] = useState(
-    "Tap the microphone and speak naturally."
+    "Tap the microphone and speak naturally.",
   );
 
+  // References used to manage microphone recording and audio chunks.
   const mediaRecorderRef = useRef(null);
   const streamRef = useRef(null);
   const chunksRef = useRef([]);
@@ -172,17 +197,18 @@ function App() {
     setSuccess(isError ? "" : message);
   }, []);
 
+  // Fetch tasks from the backend.
   const loadTasks = useCallback(async () => {
     setLoading(true);
     setError("");
 
     try {
       const data = await api("/api/tasks");
-      const list = Array.isArray(data)
+      const taskList = Array.isArray(data)
         ? data
         : data.tasks || data.items || [];
 
-      setTasks(list.map(normalizeTask));
+      setTasks(taskList.map(normalizeTask));
     } catch (err) {
       console.error("Load tasks error:", err);
       setError(`Could not load tasks: ${getErrorMessage(err)}`);
@@ -195,34 +221,40 @@ function App() {
     loadTasks();
   }, [loadTasks]);
 
+  // Stop microphone tracks when the component is removed.
   useEffect(() => {
     return () => {
       streamRef.current?.getTracks().forEach((track) => track.stop());
-      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+
+      if (audioUrlRef.current) {
+        URL.revokeObjectURL(audioUrlRef.current);
+      }
     };
   }, []);
 
   const completedCount = tasks.filter(
-    (task) => task.status.toLowerCase() === "completed"
+    (task) => task.status.toLowerCase() === "completed",
   ).length;
 
   const pendingCount = tasks.length - completedCount;
 
+  // Apply the selected status filter and search query.
   const visibleTasks = useMemo(() => {
     const query = search.trim().toLowerCase();
 
     return tasks.filter((task) => {
-      const matchesSearch = [
+      const searchableText = [
         task.title,
         task.description,
         task.category,
         task.priority,
       ]
         .join(" ")
-        .toLowerCase()
-        .includes(query);
+        .toLowerCase();
 
+      const matchesSearch = searchableText.includes(query);
       const status = task.status.toLowerCase();
+
       const matchesFilter =
         filter === "All Tasks" ||
         (filter === "Pending" && status !== "completed") ||
@@ -250,9 +282,14 @@ function App() {
 
   function updateForm(event) {
     const { name, value } = event.target;
-    setForm((current) => ({ ...current, [name]: value }));
+
+    setForm((current) => ({
+      ...current,
+      [name]: value,
+    }));
   }
 
+  // Create a task or save changes to an existing task.
   async function saveTask(event) {
     event.preventDefault();
 
@@ -268,12 +305,14 @@ function App() {
       ...form,
       title: form.title.trim(),
       status: form.status || "Pending",
+      completed: form.status.toLowerCase() === "completed",
     };
 
     try {
+      // Keep the existing request method to avoid changing working behavior.
       if (editingTask?.id != null) {
         await api(`/api/tasks/${editingTask.id}`, {
-          method: "PUT",
+          method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
@@ -288,7 +327,13 @@ function App() {
       setTaskModalOpen(false);
       setEditingTask(null);
       setForm({ ...emptyTask });
-      showMessage(editingTask ? "Task updated successfully." : "Task added successfully.");
+
+      showMessage(
+        editingTask
+          ? "Task updated successfully."
+          : "Task added successfully.",
+      );
+
       await loadTasks();
     } catch (err) {
       console.error("Save task error:", err);
@@ -305,22 +350,27 @@ function App() {
     }
 
     const completed = task.status.toLowerCase() !== "completed";
+
     const updated = {
       ...task,
       status: completed ? "Completed" : "Pending",
+      completed,
     };
 
     setTasks((current) =>
-      current.map((item) => (item.id === task.id ? updated : item))
+      current.map((item) => (item.id === task.id ? updated : item)),
     );
 
     try {
       await api(`/api/tasks/${task.id}`, {
-        method: "PUT",
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updated),
       });
-      showMessage(completed ? "Task completed!" : "Task marked as pending.");
+
+      showMessage(
+        completed ? "Task completed!" : "Task marked as pending.",
+      );
     } catch (err) {
       console.error("Update task error:", err);
       setError(`Could not update task: ${getErrorMessage(err)}`);
@@ -334,11 +384,17 @@ function App() {
       return;
     }
 
-    if (!window.confirm(`Delete "${task.title}"?`)) return;
+    if (!window.confirm(`Delete "${task.title}"?`)) {
+      return;
+    }
 
     try {
       await api(`/api/tasks/${task.id}`, { method: "DELETE" });
-      setTasks((current) => current.filter((item) => item.id !== task.id));
+
+      setTasks((current) =>
+        current.filter((item) => item.id !== task.id),
+      );
+
       showMessage("Task deleted successfully.");
     } catch (err) {
       console.error("Delete task error:", err);
@@ -361,7 +417,9 @@ function App() {
 
   async function startRecording() {
     if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
-      setError("Your browser does not support microphone recording. Try Chrome.");
+      setError(
+        "Your browser does not support microphone recording. Try Chrome.",
+      );
       return;
     }
 
@@ -370,7 +428,10 @@ function App() {
       setTranscript("");
       setVoiceStatus("Listening… speak your task now.");
 
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+      });
+
       streamRef.current = stream;
       chunksRef.current = [];
 
@@ -387,7 +448,9 @@ function App() {
       mediaRecorderRef.current = recorder;
 
       recorder.ondataavailable = (event) => {
-        if (event.data?.size) chunksRef.current.push(event.data);
+        if (event.data?.size) {
+          chunksRef.current.push(event.data);
+        }
       };
 
       recorder.onerror = () => {
@@ -431,15 +494,19 @@ function App() {
     }
   }
 
+  // Upload recorded audio and fill the task form with the parsed result.
   async function sendVoiceCommand(blob) {
     setVoiceBusy(true);
     setVoiceStatus("Understanding your task…");
 
     try {
       const extension = blob.type.includes("mp4") ? "m4a" : "webm";
-      const audioFile = new File([blob], `voice-command.${extension}`, {
-        type: blob.type || "audio/webm",
-      });
+
+      const audioFile = new File(
+        [blob],
+        `voice-command.${extension}`,
+        { type: blob.type || "audio/webm" },
+      );
 
       const body = new FormData();
       body.append("audio", audioFile);
@@ -460,18 +527,44 @@ function App() {
         result.transcription ||
         "";
 
+      const taskText = [
+        parsed.title,
+        parsed.description,
+        spokenText,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      // Use the server's type when available; otherwise infer a common type.
+      let detectedType = parsed.type || "Task";
+
+      if (/\bassignment\b|\bhomework\b/.test(taskText)) {
+        detectedType = "Assignment";
+      } else if (/\bexam\b|\btest\b/.test(taskText)) {
+        detectedType = "Exam";
+      } else if (/\bmeeting\b/.test(taskText)) {
+        detectedType = "Meeting";
+      } else if (/\breminder\b|\bremind me\b/.test(taskText)) {
+        detectedType = "Reminder";
+      }
+
       setTranscript(spokenText);
+
       setForm({
         ...emptyTask,
         ...parsed,
         title: parsed.title || spokenText,
+        type: detectedType,
         status: parsed.status || "Pending",
       });
 
       setVoiceStatus("Task understood! Review the details below.");
 
       if (!parsed.title && !spokenText) {
-        setError("The server returned no task details. Check the voice API response.");
+        setError(
+          "The server returned no task details. Check the voice API response.",
+        );
       }
     } catch (err) {
       console.error("Voice command error:", err);
@@ -493,7 +586,10 @@ function App() {
   function closeVoiceModal() {
     if (recording) {
       const recorder = mediaRecorderRef.current;
-      if (recorder && recorder.state !== "inactive") recorder.stop();
+
+      if (recorder && recorder.state !== "inactive") {
+        recorder.stop();
+      }
     }
 
     stopMicrophone();
@@ -508,6 +604,7 @@ function App() {
           <div className="brand-icon">
             <AudioLines size={23} />
           </div>
+
           <div>
             <h2>VoiceTasks</h2>
             <p>Your voice. Your productivity.</p>
@@ -548,9 +645,17 @@ function App() {
             <div className="assistant-icon">
               <Sparkles size={20} />
             </div>
+
             <h3>Your AI Assistant</h3>
-            <p>Speak naturally in your language. Let VoiceTasks organise your day.</p>
-            <button className="assistant-button" onClick={openVoiceAssistant}>
+            <p>
+              Speak naturally in your language. Let VoiceTasks organise your
+              day.
+            </p>
+
+            <button
+              className="assistant-button"
+              onClick={openVoiceAssistant}
+            >
               <Mic size={15} />
               Try voice assistant
             </button>
@@ -569,10 +674,14 @@ function App() {
           </div>
 
           <div className="topbar-actions">
-            <button className="voice-button" onClick={openVoiceAssistant}>
+            <button
+              className="voice-button"
+              onClick={openVoiceAssistant}
+            >
               <Mic size={16} />
               Speak a task
             </button>
+
             <button className="primary-button" onClick={openAddTask}>
               <Plus size={17} />
               Add Task
@@ -613,7 +722,11 @@ function App() {
         </section>
 
         {(error || success) && (
-          <div className={`message ${error ? "error-message" : "success-message"}`}>
+          <div
+            className={`message ${
+              error ? "error-message" : "success-message"
+            }`}
+          >
             <span>{error || success}</span>
             <button
               onClick={() => {
@@ -631,9 +744,7 @@ function App() {
           <div className="section-heading">
             <div>
               <h2>
-                {filter === "All Tasks"
-                  ? "Your Tasks"
-                  : `${filter} Tasks`}
+                {filter === "All Tasks" ? "Your Tasks" : `${filter} Tasks`}
               </h2>
               <p>Everything you need to get done, in one place.</p>
             </div>
@@ -651,19 +762,26 @@ function App() {
 
           {loading ? (
             <div className="empty-state">
-              <div className="empty-icon"><AudioLines size={25} /></div>
+              <div className="empty-icon">
+                <AudioLines size={25} />
+              </div>
               <h3>Loading your tasks</h3>
               <p>Please wait while we fetch your tasks.</p>
             </div>
           ) : visibleTasks.length === 0 ? (
             <div className="empty-state">
-              <div className="empty-icon"><ListTodo size={26} /></div>
-              <h3>{search ? "No matching tasks" : "Your task list is empty"}</h3>
+              <div className="empty-icon">
+                <ListTodo size={26} />
+              </div>
+              <h3>
+                {search ? "No matching tasks" : "Your task list is empty"}
+              </h3>
               <p>
                 {search
                   ? "Try a different search term."
                   : "Add your first task or tell your voice assistant what you need to do."}
               </p>
+
               {!search && (
                 <button className="primary-button" onClick={openAddTask}>
                   <Plus size={16} />
@@ -674,20 +792,31 @@ function App() {
           ) : (
             <div className="task-list">
               {visibleTasks.map((task, index) => {
-                const isCompleted = task.status.toLowerCase() === "completed";
+                const isCompleted =
+                  task.status.toLowerCase() === "completed";
 
                 return (
                   <article
-                    className={`task-card ${isCompleted ? "task-completed" : ""}`}
+                    className={`task-card ${
+                      isCompleted ? "task-completed" : ""
+                    }`}
                     key={task.id ?? `${task.title}-${index}`}
                   >
                     <button
                       className="complete-button"
                       onClick={() => toggleComplete(task)}
-                      aria-label={isCompleted ? "Mark pending" : "Mark completed"}
-                      title={isCompleted ? "Mark pending" : "Mark completed"}
+                      aria-label={
+                        isCompleted ? "Mark pending" : "Mark completed"
+                      }
+                      title={
+                        isCompleted ? "Mark pending" : "Mark completed"
+                      }
                     >
-                      {isCompleted ? <Check size={15} /> : <Circle size={17} />}
+                      {isCompleted ? (
+                        <Check size={15} />
+                      ) : (
+                        <Circle size={17} />
+                      )}
                     </button>
 
                     <div className="task-details">
@@ -700,20 +829,25 @@ function App() {
                       </button>
 
                       {task.description && (
-                        <p className="task-description">{task.description}</p>
+                        <p className="task-description">
+                          {task.description}
+                        </p>
                       )}
 
                       <div className="task-meta">
                         <span className="category-tag">{task.category}</span>
+
                         <span
                           className={`priority-tag priority-${task.priority.toLowerCase()}`}
                         >
                           {task.priority}
                         </span>
+
                         <span>
                           <CalendarDays size={13} />
                           {formatDate(task.date)}
                         </span>
+
                         {task.time && (
                           <span>
                             <Clock3 size={13} />
@@ -731,6 +865,7 @@ function App() {
                       >
                         <Edit3 size={15} />
                       </IconButton>
+
                       <IconButton
                         label="Delete task"
                         className="delete-btn"
@@ -769,6 +904,7 @@ function App() {
                 </h2>
                 <p>Add the details below to keep your day organised.</p>
               </div>
+
               <button
                 className="modal-close"
                 onClick={() => setTaskModalOpen(false)}
@@ -847,6 +983,7 @@ function App() {
                   >
                     <option>Personal</option>
                     <option>College</option>
+                    <option>Study</option>
                     <option>Work</option>
                     <option>Health</option>
                     <option>Shopping</option>
@@ -896,7 +1033,12 @@ function App() {
                 >
                   Cancel
                 </button>
-                <button type="submit" className="primary-button" disabled={saving}>
+
+                <button
+                  type="submit"
+                  className="primary-button"
+                  disabled={saving}
+                >
                   <Check size={16} />
                   {saving
                     ? "Saving..."
@@ -934,13 +1076,17 @@ function App() {
             </button>
 
             <div className={`voice-circle ${recording ? "is-recording" : ""}`}>
-              {recording ? <AudioLines size={34} /> : <Headphones size={34} />}
+              {recording ? (
+                <AudioLines size={34} />
+              ) : (
+                <Headphones size={34} />
+              )}
             </div>
 
             <h2 id="voice-modal-title">Your Voice Assistant</h2>
             <p>
-              Speak naturally in your preferred language. Your task details will
-              be extracted automatically.
+              Speak naturally in your preferred language. Your task details
+              will be extracted automatically.
             </p>
 
             <div className="voice-example">
@@ -956,7 +1102,9 @@ function App() {
             )}
 
             <p className="voice-status">
-              {voiceBusy ? "Processing your voice command…" : voiceStatus}
+              {voiceBusy
+                ? "Processing your voice command…"
+                : voiceStatus}
             </p>
 
             <button
@@ -973,6 +1121,7 @@ function App() {
               ) : (
                 <Mic size={17} />
               )}
+
               {voiceBusy
                 ? "Processing..."
                 : recording
